@@ -13,7 +13,6 @@ function base64urlToBuffer(base64url: string): Uint8Array {
   const buffer = Buffer.from(base64, 'base64');
   return new Uint8Array(buffer);
 }
-      
 
 function constructDataCheckString(allData: Record<string, any>): string {
   // Filter, sort, and map to construct the filtered entries string
@@ -25,7 +24,6 @@ function constructDataCheckString(allData: Record<string, any>): string {
 
   // Add the prefix and construct the final data-check string
   const dataCheckString = `${process.env.BOT_ID}:WebAppData\n${filteredEntries}`;
-
   return dataCheckString;
 }
 
@@ -36,6 +34,9 @@ const getLastFMData = async (user: string) => {
     `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${user}&api_key=${LASTFM_API_KEY}&format=json&limit=10`
   );
   const data = await response.json();
+  if (data.error === 6) {
+    throw new Error('Invalid username');
+  }
 
   if (!data.recenttracks || !data.recenttracks.track) {
     throw new Error('Failed to fetch track data');
@@ -53,6 +54,9 @@ const getUserInfo = async (user: string) => {
     `https://ws.audioscrobbler.com/2.0/?method=user.getinfo&user=${user}&api_key=${LASTFM_API_KEY}&format=json`
   );
   const data = await response.json();
+  if (data.error === 6) {
+    throw new Error('Invalid username');
+  }
 
   if (!data.user) {
     throw new Error('Failed to fetch user info');
@@ -66,6 +70,9 @@ const getTopTracks = async (user: string, period: string) => {
     `https://ws.audioscrobbler.com/2.0/?method=user.gettoptracks&user=${user}&api_key=${LASTFM_API_KEY}&format=json&period=${period}&limit=10`
   );
   const data = await response.json();
+  if (data.error === 6) {
+    throw new Error('Invalid username');
+  }
 
   if (!data.toptracks || !data.toptracks.track) {
     throw new Error('Failed to fetch top tracks');
@@ -79,6 +86,9 @@ const getTopArtists = async (user: string, period: string) => {
     `https://ws.audioscrobbler.com/2.0/?method=user.gettopartists&user=${user}&api_key=${LASTFM_API_KEY}&format=json&period=${period}&limit=10`
   );
   const data = await response.json();
+  if (data.error === 6) {
+    throw new Error('Invalid username');
+  }
 
   if (!data.topartists || !data.topartists.artist) {
     throw new Error('Failed to fetch top artists');
@@ -92,6 +102,9 @@ const getTopAlbums = async (user: string, period: string) => {
     `https://ws.audioscrobbler.com/2.0/?method=user.gettopalbums&user=${user}&api_key=${LASTFM_API_KEY}&format=json&period=${period}&limit=10`
   );
   const data = await response.json();
+  if (data.error === 6) {
+    throw new Error('Invalid username');
+  }
 
   if (!data.topalbums || !data.topalbums.album) {
     throw new Error('Failed to fetch top albums');
@@ -148,8 +161,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // Default behavior if no type or period is provided
     if (!type && !period) {
-      const { currentTrack, recentTracks } = await getLastFMData(username);
       const userInfo = await getUserInfo(username);
+      const { currentTrack, recentTracks } = await getLastFMData(username);
 
       return res.status(200).json({
         currentTrack,
@@ -158,34 +171,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
-    // Validate 'type'
     if (type !== 'topTracks' && type !== 'topArtists' && type !== 'topAlbums') {
       return res.status(400).json({ error: 'Type must be one of "topTracks", "topArtists", or "topAlbums"' });
     }
 
-    // Check for 'period' when type is specified
     if (!period || !allowedPeriods.includes(period)) {
       return res.status(400).json({ error: `Period must be one of ${allowedPeriods.join(', ')}` });
     }
 
     if (type === 'topTracks') {
       const topTracks = await getTopTracks(username, period);
-      return res.status(200).json({
-        topTracks,
-      });
+      return res.status(200).json({ topTracks });
     } else if (type === 'topArtists') {
       const topArtists = await getTopArtists(username, period);
-      return res.status(200).json({
-        topArtists,
-      });
+      return res.status(200).json({ topArtists });
     } else if (type === 'topAlbums') {
       const topAlbums = await getTopAlbums(username, period);
-      return res.status(200).json({
-        topAlbums,
-      });
+      return res.status(200).json({ topAlbums });
     }
 
   } catch (error) {
+    if ((error as Error).message === 'Invalid username') {
+      return res.status(404).json({ error: 'Invalid Last.fm username' });
+    }
+
     console.error('Error fetching Last.fm data:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }

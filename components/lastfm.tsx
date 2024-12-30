@@ -4,11 +4,13 @@ import { useState, useEffect, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
-import { Home, Music, Mic, User, AudioLines, DiscAlbum, Disc3 } from 'lucide-react'
+import { Home, Music, Mic, User, AudioLines, DiscAlbum, Disc3, Settings, X } from 'lucide-react'
 import Script from 'next/script';
 import { motion } from "framer-motion"
 import Image from "next/image"
 import { UserInfoSkeleton, TrackSkeleton, TopItemSkeleton, BottomNavSkeleton } from "@/components/Skeletons"
+import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
 
 interface Track {
   name: string
@@ -151,6 +153,7 @@ export function LastFMPage() {
     artists: false,
     albums: false,
   });
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   useEffect(() => {
     if (typeof window !== 'undefined' && (window as any).Telegram && (window as any).Telegram.WebApp) {
@@ -168,10 +171,10 @@ export function LastFMPage() {
             },
             body: JSON.stringify({ initData }),
           });
-
           if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'Failed to validate Telegram data');
+            setError('Failed to validate Telegram data');
+            setUserNotFound(true);
+            return;
           }
 
           const result = await response.json();
@@ -180,22 +183,18 @@ export function LastFMPage() {
             const userData = JSON.parse(result.allData.user); 
             setTGUser(userData);
             settestdata(result.allData);
-          }
-          if (result.user) {
-            setUser(result.user);
+            const lastfmUsername = await fetchLastFmUsername();
+            if (lastfmUsername) {
+              setUser({ _id: userData.id, lastfm_username: lastfmUsername });
+              setUserNotFound(false);
+            } else {
+              setError('User not found or Last.fm username not set');
+              setUserNotFound(true);
+            }
           }
         } catch (error) {
-          if (error instanceof Error) {
-            setError(error.message); // Set error message
-            if (error.message === 'User not found or Last.fm username not set') {
-              showAlert(error.message);
-            } else {
-              showAlert('Failed to validate Telegram data. Please try again later.');
-            }
-          } else {
-            setError('An unknown error occurred'); // Set error message
-            showAlert('An unknown error occurred. Please try again later.');
-          }
+          showAlert('An error occurred while validating your data.');
+          setError(error instanceof Error ? error.message : 'An unknown error occurred');
           setUserNotFound(true);
         } finally {
           setLoading(false);
@@ -203,7 +202,20 @@ export function LastFMPage() {
       };
 
       validateTelegramData();
+      if (telegram.SettingsButton) {
+        telegram.SettingsButton.show();
+        telegram.SettingsButton.onClick(() => setIsSettingsOpen(true));
+      }
     }
+    return () => {
+      if (typeof window !== 'undefined' && (window as any).Telegram && (window as any).Telegram.WebApp) {
+        const telegram = (window as any).Telegram.WebApp;
+        if (telegram.SettingsButton) {
+          telegram.SettingsButton.hide();
+          telegram.SettingsButton.offClick(() => setIsSettingsOpen(true));
+        }
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -227,7 +239,7 @@ export function LastFMPage() {
         fetchTopData(activeTab as 'tracks' | 'artists' | 'albums');
       }
     }
-  }, [user, activeTab, period]);
+  }, [user, activeTab, period, error]);
 
   const shouldFetchData = useCallback((dataType: 'tracks' | 'artists' | 'albums') => {
     const cachedPeriodData = cachedData[period];
@@ -274,6 +286,7 @@ export function LastFMPage() {
       else if (dataType === 'albums') setTopAlbums(data.topAlbums);
 
     } catch (err) {
+      showAlert(`Error fetching ${dataType}`);
       setError(`Error fetching ${dataType}: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setIsLoading(prev => ({ ...prev, [dataType]: false }));
@@ -296,6 +309,56 @@ export function LastFMPage() {
     telegram.openTelegramLink(url);
   };
 
+  const fetchLastFmUsername = async (): Promise<string | null> => {
+    return new Promise((resolve) => {
+      (window as any).Telegram.WebApp.CloudStorage.getItem('lastfm_username', (error: Error | null, value: string | null) => {
+        if (error) {
+          console.error("Error fetching Last.fm username:", error);
+          showAlert('Failed to fetch Last.fm username');
+          setError("Failed to fetch Last.fm username");
+          setUserNotFound(true);
+          resolve(null);
+        } else if (!value) {
+          showAlert('User not found or Last.fm username not set');
+          setError("User not found or Last.fm username not set");
+          setUserNotFound(true);
+          resolve(null);
+        } else {
+          console.log("Fetched Last.fm username from CloudStorage:", value);
+          resolve(value);
+        }
+      });
+    });
+  };
+
+  const saveLastFmUsername = async (username: string): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      (window as any).Telegram.WebApp.CloudStorage.setItem('lastfm_username', username, (error: Error | null, success: boolean) => {
+        if (error || !success) {
+          reject(new Error('Failed to save Last.fm username'));
+        } else {
+          resolve();
+        }
+      });
+    });
+  };
+
+  const removeLastFmUsername = async (): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      (window as any).Telegram.WebApp.CloudStorage.removeItem('lastfm_username', (error: Error | null) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve();
+        }
+      });
+    });
+  };
+
+  useEffect(() => {
+    console.log("User state updated:", user);
+  }, [user]);
+
   const fetchData = async () => {
     if (!user?.lastfm_username) {
       setError('Last.fm username not available.');
@@ -317,6 +380,9 @@ export function LastFMPage() {
       });
 
       if (!response.ok) {
+        if (response.status === 404) {
+          throw new Error('Invalid Last.fm username. Please update your username in settings.');
+        }
         throw new Error('Failed to fetch data from Last.fm');
       }
 
@@ -332,7 +398,11 @@ export function LastFMPage() {
       setError(null);
       setRetryAttempts(0);
     } catch (err) {
-      setError(`Failed to fetch Last.fm data: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      setError(`${err instanceof Error ? err.message : 'Unknown error'}`);
+      if (err instanceof Error && err.message.includes('Invalid Last.fm username')) {
+        showAlert('Invalid Last.fm username. Please update your username in settings.');
+        setIsSettingsOpen(true);
+      }
       setRetryAttempts(prev => prev + 1);
     }
   }
@@ -434,21 +504,60 @@ export function LastFMPage() {
             {error === 'User not found or Last.fm username not set' ? (
               <>
                 <p>Your Last.fm username is not set.</p>
-                <p>Use <code>/setusername your_lastfm_username</code> in the bot.</p>
+                <form onSubmit={async (e) => {
+                  e.preventDefault();
+                  const username = (e.target as HTMLFormElement).username.value;
+                  if (!/^[a-zA-Z][a-zA-Z0-9_-]{1,14}$/.test(username)) {
+                    showAlert('Invalid username. It should be 2-15 characters long, start with a letter, and contain only letters, numbers, underscores, or hyphens.');
+                    return;
+                  }
+                  try {
+                    await saveLastFmUsername(username);
+                    if (tguser) {
+                      setUser({ _id: tguser.id, lastfm_username: username });
+                      setUserNotFound(false);
+                    } else {
+                      throw new Error('Telegram user data not available');
+                    }
+                  } catch (error) {
+                    console.error("Error saving Last.fm username:", error);
+                    showAlert('Failed to save Last.fm username. Please try again.');
+                  }
+                }}>
+                  <div className="mt-4 space-y-2">
+                    <label htmlFor="username" className="block text-sm font-medium text-gray-700">
+                      Enter your Last.fm username
+                    </label>
+                    <input
+                      type="text"
+                      id="username"
+                      name="username"
+                      placeholder="Your Last.fm username"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      required
+                      minLength={2}
+                      maxLength={15}
+                      pattern="^[a-zA-Z][a-zA-Z0-9_-]*$"
+                    />
+                    <p className="text-xs text-gray-500">
+                      Username should be 2-15 characters, start with a letter, and contain only letters, numbers, underscores, or hyphens.
+                    </p>
+                  </div>
+                  <Button
+                    type="submit"
+                    className="mt-4 w-full bg-blue-500 hover:bg-blue-700 text-white"
+                    variant="default"
+                  >
+                    Set Username
+                  </Button>
+                </form>
               </>
             ) : (
-              <>
+              <>              
                 <p>An error occurred while loading your data.</p>
                 <p>Please try again later or contact support.</p>
               </>
             )}
-            <Button
-              onClick={() => openTelegramLink('https://t.me/eyamikabot?start=lastfm')}
-              className="mt-4 bg-blue-500 hover:bg-blue-700 text-white"
-              variant="default"
-            >
-              Contact @eyamikabot on Telegram
-            </Button>
           </motion.div>
         </div>
       </div>
@@ -465,7 +574,17 @@ export function LastFMPage() {
           ) : (
             <>
               <div className="flex flex-col">
-                <h2 className="text-2xl font-bold">{tguser?.first_name || userInfo?.name}</h2>
+                <div className="flex items-center">
+                  <h2 className="text-2xl font-bold">{tguser?.first_name || userInfo?.name}</h2>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="ml-2"
+                    onClick={() => setIsSettingsOpen(true)}
+                  >
+                    <Settings className="h-4 w-4" />
+                  </Button>
+                </div>
                 <p className="text-sm text-gray-500">
                   {userInfo?.playcount} scrobbles • {user?.lastfm_username || userInfo?.country}
                 </p>
@@ -610,6 +729,93 @@ export function LastFMPage() {
           </div>
         )}
       </CardContent>
+      {isSettingsOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+          <Card className="w-full max-w-md relative">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="absolute right-2 top-2"
+              onClick={() => setIsSettingsOpen(false)}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+            <CardHeader>
+              <CardTitle>Last.fm Settings</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                const username = (e.target as HTMLFormElement).username.value;
+                if (!/^[a-zA-Z][a-zA-Z0-9_-]{1,14}$/.test(username)) {
+                  showAlert('Invalid username. It should be 2-15 characters long, start with a letter, and contain only letters, numbers, underscores, or hyphens.');
+                  return;
+                }
+                try {
+                  await saveLastFmUsername(username);
+                  if (tguser) {
+                    setUser({ _id: tguser.id, lastfm_username: username });
+                    setIsSettingsOpen(false);
+                    setUserNotFound(false);
+                    setError(null);
+                    fetchData();
+                    showAlert('Last.fm username updated successfully.');
+                  } else {
+                    throw new Error('Telegram user data not available');
+                  }
+                } catch (error) {
+                  console.error("Error saving Last.fm username:", error);
+                  showAlert('Failed to save Last.fm username. Please try again.');
+                }
+              }}>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="username">Username</Label>
+                    <Input
+                      type="text"
+                      id="username"
+                      name="username"
+                      defaultValue={user?.lastfm_username || ''}
+                      className="w-full"
+                      required
+                      minLength={2}
+                      maxLength={15}
+                      pattern="^[a-zA-Z][a-zA-Z0-9_-]{1,14}$"
+                    />
+                    <p className="text-sm text-muted-foreground">
+                      Username should be 2-15 characters, start with a letter, and contain only letters, numbers, underscores, or hyphens.
+                    </p>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full"
+                      onClick={async () => {
+                        try {
+                          await removeLastFmUsername();
+                          setUser(prev => prev ? { ...prev, lastfm_username: undefined } : null);
+                          setIsSettingsOpen(false);
+                          setUserNotFound(true);
+                          showAlert('Last.fm username removed successfully.');
+                        } catch (error) {
+                          console.error("Error removing Last.fm username:", error);
+                          showAlert('Failed to remove Last.fm username. Please try again.');
+                        }
+                      }}
+                    >
+                      Remove Username
+                    </Button>
+                    <Button type="submit" className="w-full">
+                      Update Username
+                    </Button>
+                  </div>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </Card>
   )
 }

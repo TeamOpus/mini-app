@@ -22,8 +22,6 @@ A Telegram Mini App that integrates with Last.fm to provide users with a compreh
    - `BOT_ID`: your Telegram Bot ID 
    - `BOT_TOKEN`: Your Telegram Bot Token
    - `LASTFM_API_KEY`: Your Last.fm API Key
-   - `DATABASE_NAME`: Your MongoDB database name
-   - `MONGO_URL`: Your MongoDB URL
 
 4. Deploy the application to a hosting service compatible with Next.js
 
