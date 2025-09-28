@@ -16,7 +16,7 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Last.fm Insights by Eyamikabot",
+  title: "Last.fm Insights by billaxmusicbot",
   description: "View your Last.fm stats like top tracks, artists, albums, and more with ease.",
 };
 
