@@ -1,48 +1,42 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import * as ed from '@noble/ed25519'; // Import Ed25519 library
-import { sha512 } from '@noble/hashes/sha512'; // Import SHA-512 hash
+import * as ed from '@noble/ed25519';
+import { sha512 } from '@noble/hashes/sha512';
 
-// Set the SHA-512 hash function for synchronous methods
 ed.etc.sha512Sync = (...messages) => sha512(ed.etc.concatBytes(...messages));
 
-// Helper function to decode Base64url to Uint8Array
 function base64urlToBuffer(base64url: string): Uint8Array {
-  const base64 = base64url
-    .replace(/-/g, '+') // Replace '-' with '+'
-    .replace(/_/g, '/'); // Replace '_' with '/'
+  const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
   const buffer = Buffer.from(base64, 'base64');
   return new Uint8Array(buffer);
 }
 
 function constructDataCheckString(allData: Record<string, any>): string {
-  // Filter, sort, and map to construct the filtered entries string
   const filteredEntries = Object.entries(allData)
-    .filter(([key]) => key !== 'hash' && key !== 'signature') // Exclude specific keys
-    .sort(([a], [b]) => a.localeCompare(b)) // Sort by key
-    .map(([key, value]) => `${key}=${value}`) // Convert to `key=value` format
-    .join('\n'); // Join with newline
+    .filter(([key]) => key !== 'hash' && key !== 'signature')
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => `${key}=${value}`)
+    .join('\n');
 
-  // Add the prefix and construct the final data-check string
-  const dataCheckString = `${process.env.BOT_ID}:WebAppData\n${filteredEntries}`;
-  return dataCheckString;
+  return `${process.env.BOT_ID}:WebAppData\n${filteredEntries}`;
 }
 
 const LASTFM_API_KEY = process.env.LASTFM_API_KEY;
 
+// Utility to normalize track/artist/album to array
+function ensureArray<T>(data: T | T[]): T[] {
+  if (!data) return [];
+  return Array.isArray(data) ? data : [data];
+}
+
 const getLastFMData = async (user: string) => {
-  const response = await fetch(
+  const res = await fetch(
     `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${user}&api_key=${LASTFM_API_KEY}&format=json&limit=10`
   );
-  const data = await response.json();
-  if (data.error === 6) {
-    throw new Error('Invalid username');
-  }
+  const data = await res.json();
 
-  if (!data.recenttracks || !data.recenttracks.track) {
-    throw new Error('Failed to fetch track data');
-  }
+  if (data.error === 6) throw new Error('Invalid username');
 
-  const tracks = data.recenttracks.track;
+  const tracks = ensureArray(data.recenttracks?.track);
   const currentTrack = tracks[0] || null;
   const recentTracks = tracks.slice(1);
 
@@ -50,70 +44,49 @@ const getLastFMData = async (user: string) => {
 };
 
 const getUserInfo = async (user: string) => {
-  const response = await fetch(
+  const res = await fetch(
     `https://ws.audioscrobbler.com/2.0/?method=user.getinfo&user=${user}&api_key=${LASTFM_API_KEY}&format=json`
   );
-  const data = await response.json();
-  if (data.error === 6) {
-    throw new Error('Invalid username');
-  }
+  const data = await res.json();
 
-  if (!data.user) {
-    throw new Error('Failed to fetch user info');
-  }
+  if (data.error === 6) throw new Error('Invalid username');
 
-  return data.user;
+  return data.user || null;
 };
 
 const getTopTracks = async (user: string, period: string) => {
-  const response = await fetch(
+  const res = await fetch(
     `https://ws.audioscrobbler.com/2.0/?method=user.gettoptracks&user=${user}&api_key=${LASTFM_API_KEY}&format=json&period=${period}&limit=10`
   );
-  const data = await response.json();
-  if (data.error === 6) {
-    throw new Error('Invalid username');
-  }
+  const data = await res.json();
 
-  if (!data.toptracks || !data.toptracks.track) {
-    throw new Error('Failed to fetch top tracks');
-  }
+  if (data.error === 6) throw new Error('Invalid username');
 
-  return data.toptracks.track;
+  return ensureArray(data.toptracks?.track);
 };
 
 const getTopArtists = async (user: string, period: string) => {
-  const response = await fetch(
+  const res = await fetch(
     `https://ws.audioscrobbler.com/2.0/?method=user.gettopartists&user=${user}&api_key=${LASTFM_API_KEY}&format=json&period=${period}&limit=10`
   );
-  const data = await response.json();
-  if (data.error === 6) {
-    throw new Error('Invalid username');
-  }
+  const data = await res.json();
 
-  if (!data.topartists || !data.topartists.artist) {
-    throw new Error('Failed to fetch top artists');
-  }
+  if (data.error === 6) throw new Error('Invalid username');
 
-  return data.topartists.artist;
+  return ensureArray(data.topartists?.artist);
 };
 
 const getTopAlbums = async (user: string, period: string) => {
-  const response = await fetch(
+  const res = await fetch(
     `https://ws.audioscrobbler.com/2.0/?method=user.gettopalbums&user=${user}&api_key=${LASTFM_API_KEY}&format=json&period=${period}&limit=10`
   );
-  const data = await response.json();
-  if (data.error === 6) {
-    throw new Error('Invalid username');
-  }
+  const data = await res.json();
 
-  if (!data.topalbums || !data.topalbums.album) {
-    throw new Error('Failed to fetch top albums');
-  }
+  if (data.error === 6) throw new Error('Invalid username');
 
-  return data.topalbums.album;
+  return ensureArray(data.topalbums?.album);
 };
 
-// Define allowed periods
 const allowedPeriods = ['overall', '7day', '1month', '3month', '6month', '12month'];
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -122,7 +95,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const { query_string, signature, username, period, type } = req.body; // Added 'type' parameter
+    const { query_string, signature, username, period, type } = req.body;
 
     if (!query_string || !signature) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -134,23 +107,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const currentTime = Math.floor(Date.now() / 1000);
-    const timeLimit = 60 * 60;  // Allow a 1-hour window
-    const tolerance = 5 * 60;   // Additional 5 minutes tolerance
+    const timeLimit = 60 * 60;
+    const tolerance = 5 * 60;
 
     if (currentTime - authDate > timeLimit + tolerance) {
       return res.status(401).json({ error: 'Auth date is too old' });
     }
 
     const dataString = constructDataCheckString(query_string);
-    // Validate the signature using Ed25519 public key
-    const telegramPublicKeyHex = 'e7bf03a2fa4602af4580703d88dda5bb59f32ed8b02a56c187fe7d34caed242d'; // Production public key in hex format
+    const telegramPublicKeyHex = 'e7bf03a2fa4602af4580703d88dda5bb59f32ed8b02a56c187fe7d34caed242d';
     const telegramPublicKey = Uint8Array.from(Buffer.from(telegramPublicKeyHex, 'hex'));
     const dataCheckStringBuffer = Buffer.from(dataString, 'utf-8');
-    const signatureBuffer = base64urlToBuffer(signature);  // Convert signature from base64url to Uint8Array
+    const signatureBuffer = base64urlToBuffer(signature);
 
-    // Use @noble/ed25519 to verify the signature
     const isSignatureValid = await ed.verify(signatureBuffer, dataCheckStringBuffer, telegramPublicKey);
-    
+
     if (!isSignatureValid) {
       return res.status(401).json({ error: 'Signature verification failed.' });
     }
@@ -159,19 +130,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: 'Username is required' });
     }
 
-    // Default behavior if no type or period is provided
+    // Default behavior if no type or period provided
     if (!type && !period) {
       const userInfo = await getUserInfo(username);
       const { currentTrack, recentTracks } = await getLastFMData(username);
 
-      return res.status(200).json({
-        currentTrack,
-        recentTracks,
-        userInfo,
-      });
+      return res.status(200).json({ currentTrack, recentTracks, userInfo });
     }
 
-    if (type !== 'topTracks' && type !== 'topArtists' && type !== 'topAlbums') {
+    if (!['topTracks', 'topArtists', 'topAlbums'].includes(type)) {
       return res.status(400).json({ error: 'Type must be one of "topTracks", "topArtists", or "topAlbums"' });
     }
 
