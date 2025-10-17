@@ -16,8 +16,8 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Last.fm Insights by billaxmusicbot",
-  description: "View your Last.fm stats like top tracks, artists, albums, and more with ease.",
+  title: "SpotiPy by billaxmusicbot",
+  description: "Listen Spotify  tracks, artists, albums, and more with ease under Mini app.",
 };
 
 export default function RootLayout({
