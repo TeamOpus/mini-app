@@ -34,8 +34,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const dataCheckString = Array.from(params.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, value]) => `${key}=${value}`)
-      .join('
-');
+      .join('\n'); // ← FIXED: use '\n' for newline
 
     console.log('Constructed data-check-string:', dataCheckString);
 
