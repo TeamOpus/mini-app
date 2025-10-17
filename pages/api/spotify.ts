@@ -21,7 +21,7 @@ function constructDataCheckString(allData: Record<string, any>): string {
 }
 
 const SPOTIFY_CLIENT_ID = '95f4f5c6df5744698035a0948e801ad9';
-const SPOTIFY_CLIENT_SECRET = '4b03167b38c943c3857333b3f5ea95ea';
+const SPOTIFY_CLIENT_SECRET = '4b03167b38c943c3857333b3f5ea95ea"';
 const TOKEN_JSON_URL = 'https://raw.githubusercontent.com/itzzzme/spotify-key/refs/heads/main/token.json';
 
 // Token management
