@@ -1,14 +1,14 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Button } from "@/components/ui/button"
-import { Home, Music, Mic, User, DiscAlbum, Disc3, Settings, X, Search } from 'lucide-react'
-import { motion } from "framer-motion"
-import Image from "next/image"
-import { Input } from "@/components/ui/input"
-import { UserInfoSkeleton, TrackSkeleton, TopItemSkeleton, BottomNavSkeleton } from "@/components/Skeletons"
+import { useState, useEffect, useCallback } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Button } from '@/components/ui/button';
+import { Home, Music, Mic, User, DiscAlbum, Disc3, Settings, X, Search, Play } from 'lucide-react'; // Added Play
+import { motion } from 'framer-motion';
+import Image from 'next/image';
+import { Input } from '@/components/ui/input';
+import { UserInfoSkeleton, TrackSkeleton, TopItemSkeleton } from '@/components/Skeletons';
 
 // Define TypeScript interfaces
 interface SpotifyTrack {
@@ -58,14 +58,14 @@ interface TelegramUser {
   photo_url?: string;
 }
 
-interface User {
-  _id: string; // Changed from number to string to match Telegram user ID
-  spotify_connected?: boolean;
+interface TelegramData {
+  user: TelegramUser;
+  signature: string;
 }
 
-interface TelegramData {
-  user: string;
-  signature: string;
+interface User {
+  _id: string;
+  spotify_connected?: boolean;
 }
 
 type ActiveTab = 'home' | 'tracks' | 'artists' | 'albums' | 'playlists' | 'search';
@@ -108,63 +108,73 @@ export function SpotifyPage() {
     }
   }, []);
 
-  const playTrack = useCallback(async (spotifyUrl: string) => {
-    try {
-      if (audioElement) {
-        audioElement.pause();
-        audioElement.src = '';
+  const playTrack = useCallback(
+    async (spotifyUrl: string) => {
+      try {
+        if (audioElement) {
+          audioElement.pause();
+          audioElement.src = '';
+        }
+
+        const response = await fetch(`/api/download?url=${encodeURIComponent(spotifyUrl)}`);
+        const data = await response.json();
+
+        if (data.success && data.data.downloadLinks?.[0]) {
+          const downloadUrl = data.data.downloadLinks[0].url;
+          const audio = new Audio(downloadUrl);
+          audio.play();
+
+          setAudioElement(audio);
+          setCurrentPlayingUrl(spotifyUrl);
+          setIsPlaying(true);
+
+          audio.onended = () => {
+            setIsPlaying(false);
+            setCurrentPlayingUrl(null);
+          };
+        } else {
+          showAlert('Failed to load track for playback');
+        }
+      } catch (error) {
+        console.error('Playback error:', error);
+        showAlert('Error playing track');
       }
+    },
+    [audioElement, showAlert],
+  );
 
-      const response = await fetch(`/api/download?url=${encodeURIComponent(spotifyUrl)}`);
-      const data = await response.json();
-
-      if (data.success && data.data.downloadLinks?.[0]) {
-        const downloadUrl = data.data.downloadLinks[0].url;
-        const audio = new Audio(downloadUrl);
-        audio.play();
-
-        setAudioElement(audio);
-        setCurrentPlayingUrl(spotifyUrl);
-        setIsPlaying(true);
-
-        audio.onended = () => {
-          setIsPlaying(false);
-          setCurrentPlayingUrl(null);
-        };
-      } else {
-        showAlert('Failed to load track for playback');
+  const fetchData = useCallback(
+    async (type: string, params: any) => {
+      if (!testdata) {
+        showAlert('User data not available');
+        return null;
       }
-    } catch (error) {
-      console.error('Playback error:', error);
-      showAlert('Error playing track');
-    }
-  }, [audioElement, showAlert]);
+      setIsLoading(true);
+      try {
+        const response = await fetch('/api/spotify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            query_string: testdata.user,
+            signature: testdata.signature,
+            type,
+            ...params,
+          }),
+        });
 
-  const fetchData = useCallback(async (type: string, params: any) => {
-    setIsLoading(true);
-    try {
-      const response = await fetch('/api/spotify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          query_string: testdata?.user,
-          signature: testdata?.signature,
-          type,
-          ...params,
-        }),
-      });
-
-      if (!response.ok) throw new Error(`Failed to fetch ${type}`);
-      const data = await response.json();
-      return data || null;
-    } catch (err) {
-      showAlert(`Error fetching ${type}`);
-      console.error('Error:', err);
-      return null;
-    } finally {
-      setIsLoading(false);
-    }
-  }, [testdata, showAlert]);
+        if (!response.ok) throw new Error(`Failed to fetch ${type}`);
+        const data = await response.json();
+        return data || null;
+      } catch (err) {
+        showAlert(`Error fetching ${type}`);
+        console.error('Error:', err);
+        return null;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [testdata, showAlert],
+  );
 
   const loadFeaturedPlaylists = useCallback(async () => {
     const data = await fetchData('featuredPlaylists', {});
@@ -214,7 +224,7 @@ export function SpotifyPage() {
           if (result.allData) {
             const userData: TelegramUser = JSON.parse(result.allData.user);
             setTGUser(userData);
-            setTestdata(result.allData);
+            setTestdata({ ...result.allData, user: userData });
             setUser({ _id: userData.id, spotify_connected: true });
             setUserNotFound(false);
           }
@@ -252,7 +262,6 @@ export function SpotifyPage() {
     }
   }, [user, activeTab, loadFeaturedPlaylists]);
 
-  // Cleanup audio element on component unmount
   useEffect(() => {
     return () => {
       if (audioElement) {
@@ -291,27 +300,16 @@ export function SpotifyPage() {
           <CardContent className="pt-6">
             <div className="flex items-center gap-4">
               <Avatar className="h-16 w-16">
-                <AvatarImage
-                  src={tguser?.photo_url ?? ''}
-                  alt={tguser?.first_name ?? 'User'}
-                />
+                <AvatarImage src={tguser?.photo_url ?? ''} alt={tguser?.first_name ?? 'User'} />
                 <AvatarFallback>
                   <User className="w-8 h-8" />
                 </AvatarFallback>
               </Avatar>
               <div className="flex-1">
-                <h2 className="text-2xl font-bold">
-                  {tguser?.first_name ?? 'Spotify User'}
-                </h2>
-                <p className="text-sm text-gray-600">
-                  Explore millions of tracks, albums & playlists
-                </p>
+                <h2 className="text-2xl font-bold">{tguser?.first_name ?? 'Spotify User'}</h2>
+                <p className="text-sm text-gray-600">Explore millions of tracks, albums & playlists</p>
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setIsSettingsOpen(true)}
-              >
+              <Button variant="ghost" size="icon" onClick={() => setIsSettingsOpen(true)}>
                 <Settings className="w-5 h-5" />
               </Button>
             </div>
@@ -328,38 +326,23 @@ export function SpotifyPage() {
                 Browse music by tracks, artists, albums, and playlists. Use the navigation below to explore!
               </p>
               <div className="grid grid-cols-2 gap-4">
-                <Button
-                  onClick={() => setActiveTab('tracks')}
-                  className="h-24 flex flex-col gap-2"
-                >
+                <Button onClick={() => setActiveTab('tracks')} className="h-24 flex flex-col gap-2">
                   <Music className="w-8 h-8" />
                   <span>Tracks</span>
                 </Button>
-                <Button
-                  onClick={() => setActiveTab('artists')}
-                  className="h-24 flex flex-col gap-2"
-                >
+                <Button onClick={() => setActiveTab('artists')} className="h-24 flex flex-col gap-2">
                   <Mic className="w-8 h-8" />
                   <span>Artists</span>
                 </Button>
-                <Button
-                  onClick={() => setActiveTab('albums')}
-                  className="h-24 flex flex-col gap-2"
-                >
+                <Button onClick={() => setActiveTab('albums')} className="h-24 flex flex-col gap-2">
                   <DiscAlbum className="w-8 h-8" />
                   <span>Albums</span>
                 </Button>
-                <Button
-                  onClick={() => setActiveTab('playlists')}
-                  className="h-24 flex flex-col gap-2"
-                >
+                <Button onClick={() => setActiveTab('playlists')} className="h-24 flex flex-col gap-2">
                   <Disc3 className="w-8 h-8" />
                   <span>Playlists</span>
                 </Button>
-                <Button
-                  onClick={() => setActiveTab('search')}
-                  className="h-24 flex flex-col gap-2"
-                >
+                <Button onClick={() => setActiveTab('search')} className="h-24 flex flex-col gap-2">
                   <Search className="w-8 h-8" />
                   <span>Search</span>
                 </Button>
@@ -386,11 +369,16 @@ export function SpotifyPage() {
                 </Button>
               </div>
               {isLoading ? (
-                Array(5).fill(0).map((_, i) => <TopItemSkeleton key={i} />)
+                Array(5)
+                  .fill(0)
+                  .map((_, i) => <TopItemSkeleton key={i} />)
               ) : (
                 <div className="space-y-4 mt-4">
                   {searchResults.tracks?.map((track) => (
-                    <div key={track.id} className="flex items-center gap-4 p-3 rounded-lg hover:bg-gray-50">
+                    <div
+                      key={track.id}
+                      className="flex items-center gap-4 p-3 rounded-lg hover:bg-gray-50"
+                    >
                       {track.album.images?.[0] && (
                         <Image
                           src={track.album.images[0].url}
@@ -412,7 +400,10 @@ export function SpotifyPage() {
                     </div>
                   ))}
                   {searchResults.artists?.map((artist) => (
-                    <div key={artist.id} className="flex items-center gap-4 p-3 rounded-lg hover:bg-gray-50">
+                    <div
+                      key={artist.id}
+                      className="flex items-center gap-4 p-3 rounded-lg hover:bg-gray-50"
+                    >
                       {artist.images?.[0] && (
                         <Image
                           src={artist.images[0].url}
@@ -429,7 +420,10 @@ export function SpotifyPage() {
                     </div>
                   ))}
                   {searchResults.albums?.map((album) => (
-                    <div key={album.id} className="flex items-center gap-4 p-3 rounded-lg hover:bg-gray-50">
+                    <div
+                      key={album.id}
+                      className="flex items-center gap-4 p-3 rounded-lg hover:bg-gray-50"
+                    >
                       {album.images?.[0] && (
                         <Image
                           src={album.images[0].url}
@@ -460,7 +454,9 @@ export function SpotifyPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               {isLoading ? (
-                Array(5).fill(0).map((_, i) => <TopItemSkeleton key={i} />)
+                Array(5)
+                  .fill(0)
+                  .map((_, i) => <TopItemSkeleton key={i} />)
               ) : (
                 featuredPlaylists.map((playlist, index) => (
                   <motion.div
@@ -543,7 +539,6 @@ export function SpotifyPage() {
             <Home className="w-6 h-6" />
             <span className="text-xs mt-1">Home</span>
           </button>
-
           <button
             onClick={() => setActiveTab('tracks')}
             className={`flex flex-col items-center justify-center w-1/5 h-full ${
@@ -553,9 +548,8 @@ export function SpotifyPage() {
             <Music className="w-6 h-6" />
             <span className="text-xs mt-1">Tracks</span>
           </button>
-
           <button
-            onClick={() => setActiveTab('artists')}
+          onClick={() => setActiveTab('artists')}
             className={`flex flex-col items-center justify-center w-1/5 h-full ${
               activeTab === 'artists' ? 'text-black' : 'text-gray-500'
             }`}
@@ -563,7 +557,6 @@ export function SpotifyPage() {
             <Mic className="w-6 h-6" />
             <span className="text-xs mt-1">Artists</span>
           </button>
-
           <button
             onClick={() => setActiveTab('albums')}
             className={`flex flex-col items-center justify-center w-1/5 h-full ${
@@ -573,7 +566,6 @@ export function SpotifyPage() {
             <DiscAlbum className="w-6 h-6" />
             <span className="text-xs mt-1">Albums</span>
           </button>
-
           <button
             onClick={() => setActiveTab('playlists')}
             className={`flex flex-col items-center justify-center w-1/5 h-full ${
@@ -592,18 +584,14 @@ export function SpotifyPage() {
             <CardHeader>
               <div className="flex justify-between items-center">
                 <CardTitle>Settings</CardTitle>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setIsSettingsOpen(false)}
-                >
+                <Button variant="ghost" size="icon" onClick={() => setIsSettingsOpen(false)}>
                   <X className="w-5 h-5" />
                 </Button>
               </div>
             </CardHeader>
             <CardContent>
               <p className="text-center text-gray-600">
-                Spotify Explorer - Browse music without limits under Telegram Mini App Through Recreation Music!
+                Spotify Explorer - Browse music without limits!
               </p>
             </CardContent>
           </Card>
