@@ -34,7 +34,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const dataCheckString = Array.from(params.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, value]) => `${key}=${value}`)
-      .join('\n');
+      .join('
+');
 
     console.log('Constructed data-check-string:', dataCheckString);
 
@@ -81,7 +82,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json(validatedData);
   } catch (error) {
     console.error('Error validating data:', error);
-    // Send a detailed error response
     return res.status(500).json({
       error: 'Internal server error',
       type: 'server_error',
