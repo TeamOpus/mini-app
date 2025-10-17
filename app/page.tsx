@@ -1,5 +1,5 @@
-import { LastFMPage } from "@/components/lastfm"
+import { SpotifyPage } from "@/components/spotify"
 
 export default function Page() {
-  return <LastFMPage />
+  return <SpotifyPage />
 }
