@@ -15,11 +15,9 @@ function constructDataCheckString(allData: Record<string, any>): string {
     .filter(([key]) => key !== 'hash' && key !== 'signature')
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, value]) => `${key}=${value}`)
-    .join('
-');
+    .join('\n'); // ← FIXED: use '\n' instead of multi-line string
 
-  return `${process.env.BOT_ID}:WebAppData
-${filteredEntries}`;
+  return `${process.env.BOT_ID}:WebAppData\n${filteredEntries}`; // ensure newline after BOT_ID
 }
 
 const SPOTIFY_CLIENT_ID = '95f4f5c6df5744698035a0948e801ad9';
@@ -62,7 +60,6 @@ async function generateNewToken(): Promise<string> {
     throw new Error('Failed to generate token');
   }
 
-  // Cache token with expiry (tokens last 1 hour)
   tokenCache = {
     token: data.access_token,
     expiresAt: Date.now() + (data.expires_in * 1000) - 300000, // 5 min buffer
@@ -73,22 +70,18 @@ async function generateNewToken(): Promise<string> {
 
 // Get valid Spotify token with fallback logic
 async function getValidToken(): Promise<string> {
-  // Check if cached token is still valid
   if (tokenCache && tokenCache.expiresAt > Date.now()) {
     return tokenCache.token;
   }
 
-  // Try backup tokens
   if (cachedTokens.length === 0) {
     cachedTokens = await fetchBackupTokens();
   }
 
-  // Rotate through backup tokens
   for (let i = 0; i < cachedTokens.length; i++) {
     const token = cachedTokens[currentTokenIndex];
     currentTokenIndex = (currentTokenIndex + 1) % cachedTokens.length;
 
-    // Test token validity
     const testRes = await fetch('https://api.spotify.com/v1/me', {
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -98,7 +91,6 @@ async function getValidToken(): Promise<string> {
     }
   }
 
-  // All backup tokens failed, generate new one
   return await generateNewToken();
 }
 
@@ -107,14 +99,11 @@ async function spotifyFetch(endpoint: string, token?: string): Promise<any> {
   const accessToken = token || await getValidToken();
   
   const res = await fetch(`https://api.spotify.com/v1${endpoint}`, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
+    headers: { Authorization: `Bearer ${accessToken}` },
   });
 
   if (!res.ok) {
     if (res.status === 401) {
-      // Token expired, retry with new token
       const newToken = await generateNewToken();
       return spotifyFetch(endpoint, newToken);
     }
@@ -168,11 +157,7 @@ const getUserPlaylists = async (token: string, limit: number = 20) => {
 const getPlaylistDetails = async (token: string, playlistId: string) => {
   const playlist = await spotifyFetch(`/playlists/${playlistId}`, token);
   const tracks = await spotifyFetch(`/playlists/${playlistId}/tracks?limit=50`, token);
-  
-  return {
-    ...playlist,
-    tracks: tracks.items || [],
-  };
+  return { ...playlist, tracks: tracks.items || [] };
 };
 
 // Get album details with tracks
@@ -189,7 +174,7 @@ const getSavedAlbums = async (token: string, limit: number = 20) => {
 
 // Time range mapping (Spotify uses different format than Last.fm)
 const timeRangeMap: Record<string, string> = {
-  'overall': 'long_term',
+  overall: 'long_term',
   '7day': 'short_term',
   '1month': 'short_term',
   '3month': 'medium_term',
@@ -236,10 +221,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(401).json({ error: 'Signature verification failed.' });
     }
 
-    // Use provided access token or get from backup/generate
     const token = access_token || await getValidToken();
 
-    // Default behavior: current + recent tracks + user profile
     if (!type && !playlistId && !albumId) {
       const [userProfile, currentTrack, recentTracks] = await Promise.all([
         getUserProfile(token),
@@ -247,31 +230,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         getRecentlyPlayed(token),
       ]);
 
-      return res.status(200).json({ 
-        currentTrack, 
-        recentTracks, 
-        userProfile 
-      });
+      return res.status(200).json({ currentTrack, recentTracks, userProfile });
     }
 
-    // Playlist details
     if (playlistId) {
       const playlistDetails = await getPlaylistDetails(token, playlistId);
       return res.status(200).json({ playlist: playlistDetails });
     }
 
-    // Album details
     if (albumId) {
       const albumDetails = await getAlbumDetails(token, albumId);
       return res.status(200).json({ album: albumDetails });
     }
 
-    // Top data with time ranges
     if (type) {
       if (!['topTracks', 'topArtists', 'playlists', 'albums'].includes(type)) {
-        return res.status(400).json({ 
-          error: 'Type must be one of "topTracks", "topArtists", "playlists", or "albums"' 
-        });
+        return res.status(400).json({ error: 'Type must be one of "topTracks", "topArtists", "playlists", or "albums"' });
       }
 
       if (type === 'playlists') {
@@ -284,11 +258,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(200).json({ albums });
       }
 
-      // For topTracks and topArtists, validate period
       if (period && !allowedPeriods.includes(period)) {
-        return res.status(400).json({ 
-          error: `Period must be one of ${allowedPeriods.join(', ')}` 
-        });
+        return res.status(400).json({ error: `Period must be one of ${allowedPeriods.join(', ')}` });
       }
 
       const timeRange = timeRangeMap[period || '3month'];
@@ -303,7 +274,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     return res.status(400).json({ error: 'Invalid request parameters' });
-
   } catch (error) {
     console.error('Error fetching Spotify data:', error);
     return res.status(500).json({ 
